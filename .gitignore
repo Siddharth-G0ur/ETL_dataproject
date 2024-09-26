@@ -1,0 +1,30 @@
+# Ignore logs directory
+logs/
+
+# Ignore MongoDB data
+mongodb_data/
+
+# Ignore Docker-related files
+*.log
+*.pid
+*.db
+
+# Ignore Python bytecode files
+__pycache__/
+*.pyc
+*.pyo
+
+# Ignore environment variables file (if used)
+.env
+
+# Ignore data directory if it contains large or sensitive files
+data/
+
+# Ignore temporary files
+*.tmp
+*.temp
+*.DS_Store
+
+# Ignore IDE-specific files (e.g., if you're using PyCharm or similar)
+.idea/
+.vscode/
