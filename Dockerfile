@@ -1,5 +1,6 @@
 FROM python:3.9
 
+# Set the working directory
 WORKDIR /app
 
 # Copy requirements and install dependencies
@@ -9,9 +10,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy all Python scripts
 COPY *.py .
 
-# Create an entrypoint script
-COPY entrypoint.sh .
-RUN chmod +x entrypoint.sh
-
-# Set the entrypoint
-ENTRYPOINT ["/app/entrypoint.sh"]
+# Set the default command to bash
+CMD ["python"]

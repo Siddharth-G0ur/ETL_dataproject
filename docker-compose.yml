@@ -27,8 +27,26 @@ services:
       - MONGODB_URI=mongodb://mongodb:27017/
       - DATABASE_NAME=potato_db
       - COLLECTION_NAME=tweets
-      - SCRIPT=${SCRIPT:-safe_convert_data_types.py}
-    
+    tty: true
+    stdin_open: true
+
+  flask_app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    volumes:
+      - .:/app
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/
+      - DATABASE_NAME=potato_db
+      - COLLECTION_NAME=tweets
+    tty: true
+    stdin_open: true
 
 volumes:
   mongodb_data:

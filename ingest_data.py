@@ -1,98 +1,148 @@
 import pandas as pd
-from pymongo import MongoClient, ReplaceOne
-import os
-import sys
-import gc
+from pymongo import MongoClient
 import logging
 import psutil
-from tqdm import tqdm
+import os
+import sys
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-def print_versions():
-    logger.info(f"Python version: {sys.version}")
-    logger.info(f"Pandas version: {pd.__version__}")
 
 def connect_to_mongodb():
     client = MongoClient('mongodb://mongodb:27017/')
     db = client['potato_db']
     return db['tweets']
 
-def validate_record(record):
-    required_fields = ['id']
-    return all(field in record and pd.notna(record[field]) for field in required_fields)
-
 def log_memory_usage():
     process = psutil.Process(os.getpid())
     memory_usage = process.memory_info().rss / (1024 * 1024)  # Convert to MB
     logger.info(f"Current memory usage: {memory_usage:.2f} MB")
 
-def process_chunk(chunk, collection):
-    records = chunk.to_dict('records')
-    bulk_operations = [
-        ReplaceOne({'id': record['id']}, record, upsert=True)
-        for record in records
-        if validate_record(record)
-    ]
-    return bulk_operations
+def load_and_clean_data(file_path):
+    # Load the TSV file
+    df = pd.read_csv(file_path, sep='\t')
+    
+    # Clean 'created_at' column
+    df['created_at'] = df['created_at'].astype(str).str.strip()
+    df['created_at'] = pd.to_datetime(df['created_at'], errors='coerce', utc=True)
 
-def write_to_db(collection, bulk_operations):
-    if bulk_operations:
-        try:
-            result = collection.bulk_write(bulk_operations, ordered=False)
-            logger.info(f"Write result: {result.bulk_api_result}")  # Log the result of the write operation
-            return result.bulk_api_result
-        except Exception as e:
-            logger.error(f"Error during bulk write: {str(e)}")
-            return None
+    # Strip leading/trailing whitespace for all string columns
+    df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
 
 
-def count_lines(file_path):
-    with open(file_path, 'r') as f:
-        return sum(1 for _ in f)
+    expected_dtypes = {
+        'id': 'int64',
+        'event': 'object',
+        'ts1': 'datetime64[ns]',
+        ' ts2': 'datetime64[ns]',  # Note the space
+        'from_stream': 'bool',
+        'directly_from_stream': 'bool',
+        'from_search': 'bool',
+        'directly_from_search': 'bool',
+        'from_quote_search': 'bool',
+        'directly_from_quote_search': 'bool',
+        'from_convo_search': 'bool',
+        'directly_from_convo_search': 'bool',
+        'from_timeline_search': 'bool',
+        'directly_from_timeline_search': 'bool',
+        'text': 'object',
+        'lang': 'object',
+        'author_id': 'int64',
+        'author_handle': 'object',
+        'created_at': 'datetime64[ns]',
+        'conversation_id': 'int64',
+        'possibly_sensitive': 'bool',
+        'reply_settings': 'object',
+        'source': 'object',
+        'author_follower_count': 'int64',
+        'retweet_count': 'int64',
+        'reply_count': 'int64',
+        'like_count': 'int64',
+        'quote_count': 'int64',
+        'replied_to': 'float64',
+        'replied_to_author_id': 'float64',
+        'replied_to_handle': 'object',
+        'replied_to_follower_count': 'float64',
+        'quoted': 'float64',
+        'quoted_author_id': 'float64',
+        'quoted_handle': 'object',
+        'quoted_follower_count': 'float64',
+        'retweeted': 'float64',
+        'retweeted_author_id': 'float64',
+        'retweeted_handle': 'object',
+        'retweeted_follower_count': 'float64',
+        'mentioned_author_ids': 'object',
+        'mentioned_handles': 'object',
+        'hashtags': 'object',
+        'urls': 'object',
+        'media_keys': 'object',
+        'place_id': 'object',
+    }
 
-def ingest_data(file_path, collection):
-    chunksize = 50000  # Adjust chunk size as needed
-    total_processed, total_errors = 0, 0
-    total_lines = count_lines(file_path)
-    logger.info(f"Total lines in file: {total_lines}")
+    # Clean and convert each column according to expected data types
+    for column, dtype in expected_dtypes.items():
+        if column in df.columns:
+            if dtype == 'int64':
+                df[column] = pd.to_numeric(df[column], errors='coerce').fillna(0).astype('int64')
+            elif dtype == 'datetime64[ns]':
+                df[column] = pd.to_datetime(df[column], errors='coerce', utc=True)
 
-    try:
-        with tqdm(total=total_lines, desc="Processing records") as pbar:
-            for chunk in pd.read_csv(file_path, sep='\t', chunksize=chunksize, low_memory=False):
-                bulk_operations = process_chunk(chunk, collection)
-                processed = len(bulk_operations)
-                errors = len(chunk) - processed
-                
-                if bulk_operations:
-                    write_to_db(collection, bulk_operations)
-                
-                total_processed += processed
-                total_errors += errors
-                pbar.update(processed + errors)
+    # Remove rows with NaT in 'created_at'
+    df = df.dropna(subset=['created_at'])
 
-                # Log progress
-                remaining = total_lines - total_processed - total_errors
-                logger.info(f"Processed: {total_processed}, Errors: {total_errors}, Remaining: {remaining}")
-                log_memory_usage()
+    return df
 
-        logger.info(f"Total records processed: {total_processed}")
-        logger.info(f"Total errors encountered: {total_errors}")
-    except Exception as e:
-        logger.error(f"Fatal error during data ingestion: {str(e)}")
+def filter_tweets(df, search_term):
+    filtered_tweets = df[df['text'].str.contains(search_term, case=False, na=False)]
+    return filtered_tweets
+
+def log_tweets_per_day(filtered_tweets):
+    tweets_per_day = filtered_tweets['created_at'].dt.date.value_counts().sort_index()
+    logger.info("Number of tweets containing the search term per day:")
+    for date, count in tweets_per_day.items():
+        logger.info(f"{date}: {count} tweets")
+
+def ingest_data_in_chunks(df, collection, chunk_size=5000):
+    total_rows = len(df)
+    logger.info(f"Total rows to insert: {total_rows}")
+    
+    for start in range(0, total_rows, chunk_size):
+        end = min(start + chunk_size, total_rows)
+        chunk = df.iloc[start:end]
+        
+        records = chunk.to_dict(orient='records')
+        
+        if records:
+            try:
+                collection.insert_many(records, ordered=False)
+                logger.info(f"Inserted rows {start} to {end}")
+            except Exception as e:
+                logger.error(f"Error during insert: {str(e)}")
+        
+        log_memory_usage()  # Log memory usage after each chunk
 
 def main():
-    print_versions()
+    # Load and clean the data
+    file_path = 'data/correct_twitter_202102.tsv'  # Change this to your actual file path
+    df = load_and_clean_data(file_path)
+
     logger.info("Starting data ingestion...")
     collection = connect_to_mongodb()
-
-    # Create indexes for faster queries
     collection.create_index("id")
     collection.create_index("author_id")
+    
+    search_term = 'music'
+    
+    # Filter tweets containing the search term
+    filtered_tweets = filter_tweets(df, search_term)
 
-    ingest_data('/app/data/correct_twitter_202102.tsv', collection)
+    # Log the number of tweets posted containing the term on each day
+    log_tweets_per_day(filtered_tweets)
+
+    # Ingest the cleaned DataFrame into MongoDB
+    ingest_data_in_chunks(df, collection)
+
     logger.info("Data ingestion completed.")
     logger.info(f"Total documents in collection: {collection.count_documents({})}")
 
