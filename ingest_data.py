@@ -10,16 +10,31 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 def connect_to_mongodb():
+    """
+    Establishes a connection to MongoDB and returns the tweets collection.
+    """
     client = MongoClient('mongodb://mongodb:27017/')
     db = client['potato_db']
     return db['tweets']
 
 def log_memory_usage():
+    """
+    Logs the current memory usage of the process.
+    """
     process = psutil.Process(os.getpid())
     memory_usage = process.memory_info().rss / (1024 * 1024)  # Convert to MB
     logger.info(f"Current memory usage: {memory_usage:.2f} MB")
 
 def load_and_clean_data(file_path):
+    """
+    Loads data from a TSV file and cleans it.
+    
+    Args:
+    file_path (str): Path to the TSV file.
+    
+    Returns:
+    pd.DataFrame: Cleaned DataFrame.
+    """
     # Load the TSV file
     df = pd.read_csv(file_path, sep='\t')
     
@@ -30,12 +45,12 @@ def load_and_clean_data(file_path):
     # Strip leading/trailing whitespace for all string columns
     df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
 
-
+    # Define expected data types for each column
     expected_dtypes = {
         'id': 'int64',
         'event': 'object',
         'ts1': 'datetime64[ns]',
-        ' ts2': 'datetime64[ns]',  # Note the space
+        ' ts2': 'datetime64[ns]', 
         'from_stream': 'bool',
         'directly_from_stream': 'bool',
         'from_search': 'bool',
@@ -94,16 +109,28 @@ def load_and_clean_data(file_path):
     return df
 
 def filter_tweets(df, search_term):
+    """
+    Filters tweets containing a specific search term.
+    
+    Args:
+    df (pd.DataFrame): DataFrame containing tweets.
+    search_term (str): Term to search for in tweets.
+    
+    Returns:
+    pd.DataFrame: Filtered DataFrame.
+    """
     filtered_tweets = df[df['text'].str.contains(search_term, case=False, na=False)]
     return filtered_tweets
 
-def log_tweets_per_day(filtered_tweets):
-    tweets_per_day = filtered_tweets['created_at'].dt.date.value_counts().sort_index()
-    logger.info("Number of tweets containing the search term per day:")
-    for date, count in tweets_per_day.items():
-        logger.info(f"{date}: {count} tweets")
-
 def ingest_data_in_chunks(df, collection, chunk_size=5000):
+    """
+    Ingests data into MongoDB in chunks to manage memory usage.
+    
+    Args:
+    df (pd.DataFrame): DataFrame to ingest.
+    collection (pymongo.collection.Collection): MongoDB collection to insert into.
+    chunk_size (int): Number of records to insert in each chunk.
+    """
     total_rows = len(df)
     logger.info(f"Total rows to insert: {total_rows}")
     
@@ -123,8 +150,11 @@ def ingest_data_in_chunks(df, collection, chunk_size=5000):
         log_memory_usage()  # Log memory usage after each chunk
 
 def main():
+    """
+    Main function to orchestrate the data ingestion process.
+    """
     # Load and clean the data
-    file_path = 'data/correct_twitter_202102.tsv'  # Change this to your actual file path
+    file_path = 'data/correct_twitter_202102.tsv' 
     df = load_and_clean_data(file_path)
 
     logger.info("Starting data ingestion...")
@@ -132,14 +162,6 @@ def main():
     collection.create_index("id")
     collection.create_index("author_id")
     
-    search_term = 'music'
-    
-    # Filter tweets containing the search term
-    filtered_tweets = filter_tweets(df, search_term)
-
-    # Log the number of tweets posted containing the term on each day
-    log_tweets_per_day(filtered_tweets)
-
     # Ingest the cleaned DataFrame into MongoDB
     ingest_data_in_chunks(df, collection)
 

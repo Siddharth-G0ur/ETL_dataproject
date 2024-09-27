@@ -1,52 +1,52 @@
 services:
   mongodb:
-    image: mongo:latest
+    image: mongo:latest  # Use the latest MongoDB image
     ports:
-      - "27017:27017"
+      - "27017:27017"  # Map host port 27017 to container port 27017
     volumes:
-      - ./mongodb_data:/data/db
-      - ./mongod.conf:/etc/mongo/mongod.conf
-    command: ["mongod", "--config", "/etc/mongo/mongod.conf"]
-    healthcheck:
-      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
-      interval: 10s
-      timeout: 10s
-      retries: 5
+      - ./mongodb_data:/data/db  # Persist MongoDB data on the host
+      - ./mongod.conf:/etc/mongo/mongod.conf  # Custom MongoDB configuration
+    command: ["mongod", "--config", "/etc/mongo/mongod.conf"]  # Start MongoDB with custom config
+    healthcheck:  # Health check configuration for MongoDB
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet  # Check if MongoDB is running
+      interval: 10s  # Check every 10 seconds
+      timeout: 10s  # Timeout for the check
+      retries: 5  # Retry up to 5 times before marking as unhealthy
 
   python_app:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: .  # Build the Python app from the current directory
+      dockerfile: Dockerfile  # Use the specified Dockerfile
     volumes:
-      - ./:/app
-      - ./logs:/app/logs
+      - ./:/app  # Mount the current directory to /app in the container
+      - ./logs:/app/logs  # Persist logs to a directory on the host
     depends_on:
       mongodb:
-        condition: service_healthy
+        condition: service_healthy  # Wait for MongoDB to be healthy before starting
     environment:
-      - MONGODB_URI=mongodb://mongodb:27017/
-      - DATABASE_NAME=potato_db
-      - COLLECTION_NAME=tweets
-    tty: true
-    stdin_open: true
+      - MONGODB_URI=mongodb://mongodb:27017/  # MongoDB connection string
+      - DATABASE_NAME=potato_db  # Database name to use
+      - COLLECTION_NAME=tweets  # Collection name to use
+    tty: true  # Allocate a pseudo-TTY
+    stdin_open: true  # Keep stdin open for the container
 
   flask_app:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: .  # Build the Flask app from the current directory
+      dockerfile: Dockerfile  # Use the specified Dockerfile
     ports:
-      - "5000:5000"
+      - "5000:5000"  # Map host port 5000 to container port 5000
     volumes:
-      - .:/app
+      - .:/app  # Mount the current directory to /app in the container
     depends_on:
       mongodb:
-        condition: service_healthy
+        condition: service_healthy  # Wait for MongoDB to be healthy before starting
     environment:
-      - MONGODB_URI=mongodb://mongodb:27017/
-      - DATABASE_NAME=potato_db
-      - COLLECTION_NAME=tweets
-    tty: true
-    stdin_open: true
+      - MONGODB_URI=mongodb://mongodb:27017/  # MongoDB connection string
+      - DATABASE_NAME=potato_db  # Database name to use
+      - COLLECTION_NAME=tweets  # Collection name to use
+    tty: true  # Allocate a pseudo-TTY
+    stdin_open: true  # Keep stdin open for the container
 
 volumes:
-  mongodb_data:
+  mongodb_data:  # Define a volume for MongoDB data persistence
